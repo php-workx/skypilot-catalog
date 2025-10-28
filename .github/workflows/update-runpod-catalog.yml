@@ -4,10 +4,6 @@ name: Update RunPod Catalog
 # It fetches fresh RunPod GPU data from the API and commits it to the catalog
 
 on:
-  push:
-    branches:
-      - ojin-catalog
-
   schedule:
     # Run every 3 hours
     - cron: '0 */3 * * *'
@@ -20,7 +16,7 @@ on:
         type: string
 
 jobs:
-  update-catalog:
+  update-runpod-catalog:
     runs-on: ubuntu-latest
 
     permissions:
