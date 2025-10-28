@@ -1,0 +1,115 @@
+name: Update RunPod Catalog
+
+# This workflow should be added to php-workx/skypilot-catalog repository
+# It fetches fresh RunPod GPU data from the API and commits it to the catalog
+
+on:
+  push:
+    branches:
+      - ojin-catalog
+
+  schedule:
+    # Run every 3 hours
+    - cron: '0 */3 * * *'
+
+  workflow_dispatch:
+    inputs:
+      gpu_filter:
+        description: 'Optional: Comma-separated GPU IDs to filter (leave empty for all)'
+        required: false
+        type: string
+
+jobs:
+  update-catalog:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout skypilot-catalog repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Clone SkyPilot for fetcher script
+        run: |
+          git clone --depth 1 -b ojin-pre-release https://github.com/php-workx/skypilot.git /tmp/skypilot
+          cd /tmp/skypilot
+          pip install -e ".[runpod]"
+
+      - name: Fetch fresh RunPod catalog
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          cd /tmp/skypilot
+
+          # Ensure output directory exists
+          mkdir -p $GITHUB_WORKSPACE/catalogs/v8/runpod
+
+          # Run fetcher
+          if [ -n "${{ inputs.gpu_filter }}" ]; then
+            echo "Fetching filtered GPUs: ${{ inputs.gpu_filter }}"
+            python sky/catalog/data_fetchers/fetch_runpod.py \
+              --output-dir $GITHUB_WORKSPACE/catalogs/v8/runpod \
+              --gpu-ids "${{ inputs.gpu_filter }}"
+          else
+            echo "Fetching all RunPod GPUs"
+            python sky/catalog/data_fetchers/fetch_runpod.py \
+              --output-dir $GITHUB_WORKSPACE/catalogs/v8/runpod
+          fi
+
+      - name: Check if catalog changed
+        id: check_changes
+        run: |
+          if git diff --quiet catalogs/v8/runpod/vms.csv; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes detected in RunPod catalog"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Changes detected in RunPod catalog"
+
+            # Show diff summary
+            echo "Diff summary:"
+            git diff --stat catalogs/v8/runpod/vms.csv
+          fi
+
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Get current date for commit message
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M UTC")
+
+          # Count rows in catalog
+          ROW_COUNT=$(wc -l < catalogs/v8/runpod/vms.csv)
+
+          git add catalogs/v8/runpod/vms.csv
+          git commit -m "chore: update RunPod catalog - ${TIMESTAMP}"
+
+          git push
+
+      - name: Create summary
+        run: |
+          echo "## RunPod Catalog Update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.check_changes.outputs.changed == 'true' && '✅ Updated' || '⏭️ No changes' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u +"%Y-%m-%d %H:%M UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "catalogs/v8/runpod/vms.csv" ]; then
+            ROW_COUNT=$(wc -l < catalogs/v8/runpod/vms.csv)
+            echo "**Total instances:** ${ROW_COUNT}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Sample GPU types:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cut -d',' -f2 catalogs/v8/runpod/vms.csv | sort -u | head -10 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
