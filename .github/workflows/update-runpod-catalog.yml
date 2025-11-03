@@ -1,8 +1,4 @@
 name: Update RunPod Catalog
-
-# This workflow should be added to php-workx/skypilot-catalog repository
-# It fetches fresh RunPod GPU data from the API and commits it to the catalog
-
 on:
   schedule:
     # Run every 3 hours
@@ -31,11 +27,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       - name: Clone SkyPilot for fetcher script
         run: |
-          git clone --depth 1 -b ojin-pre-release https://github.com/php-workx/skypilot.git /tmp/skypilot
+          git clone --depth 1 -b ojin-release https://github.com/php-workx/skypilot.git /tmp/skypilot
           cd /tmp/skypilot
           pip install -e ".[runpod]"
 
