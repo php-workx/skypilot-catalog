@@ -24,15 +24,18 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v4
         with:
-          python-version: '3.10'
+          version: "latest"
+          python-version: "3.10"
 
       - name: Clone SkyPilot for fetcher script
         run: |
           git clone --depth 1 -b ojin-release https://github.com/php-workx/skypilot.git /tmp/skypilot
           cd /tmp/skypilot
+          uv venv --seed ./catalogs-venv
+          source ./catalogs-venv/bin/activate
           pip install -e ".[runpod]"
 
       - name: Fetch fresh RunPod catalog
@@ -40,26 +43,31 @@ jobs:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
           cd /tmp/skypilot
+          source ./catalogs-venv/bin/activate
 
           # Ensure output directory exists
-          mkdir -p $GITHUB_WORKSPACE/catalogs/v8/runpod
+          catalog_version=$(python -c 'import sky; print(sky.skylet.constants.CATALOG_SCHEMA_VERSION)')
+          echo "catalog_version=$catalog_version" >> "$GITHUB_ENV"
+          mkdir -p $GITHUB_WORKSPACE/catalogs/$catalog_version/runpod
 
           # Run fetcher
           if [ -n "${{ inputs.gpu_filter }}" ]; then
             echo "Fetching filtered GPUs: ${{ inputs.gpu_filter }}"
             python sky/catalog/data_fetchers/fetch_runpod.py \
-              --output-dir $GITHUB_WORKSPACE/catalogs/v8/runpod \
+              --output-dir $GITHUB_WORKSPACE/catalogs/$catalog_version/runpod \
               --gpu-ids "${{ inputs.gpu_filter }}"
           else
             echo "Fetching all RunPod GPUs"
             python sky/catalog/data_fetchers/fetch_runpod.py \
-              --output-dir $GITHUB_WORKSPACE/catalogs/v8/runpod
+              --output-dir $GITHUB_WORKSPACE/catalogs/$catalog_version/runpod
           fi
 
       - name: Check if catalog changed
         id: check_changes
         run: |
-          if git diff --quiet catalogs/v8/runpod/vms.csv; then
+          cd /tmp/skypilot
+          
+          if git diff --quiet catalogs/$catalog_version/runpod/vms.csv; then
             echo "changed=false" >> $GITHUB_OUTPUT
             echo "No changes detected in RunPod catalog"
           else
@@ -68,7 +76,7 @@ jobs:
 
             # Show diff summary
             echo "Diff summary:"
-            git diff --stat catalogs/v8/runpod/vms.csv
+            git diff --stat catalogs/$catalog_version/runpod/vms.csv
           fi
 
       - name: Commit and push changes
@@ -83,7 +91,7 @@ jobs:
           # Count rows in catalog
           ROW_COUNT=$(wc -l < catalogs/v8/runpod/vms.csv)
 
-          git add catalogs/v8/runpod/vms.csv
+          git add catalogs/$catalog_version/runpod/vms.csv
           git commit -m "chore: update RunPod catalog - ${TIMESTAMP}"
 
           git push
@@ -97,7 +105,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ -f "catalogs/v8/runpod/vms.csv" ]; then
-            ROW_COUNT=$(wc -l < catalogs/v8/runpod/vms.csv)
+            ROW_COUNT=$(wc -l < catalogs/$catalog_version/runpod/vms.csv)
             echo "**Total instances:** ${ROW_COUNT}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Sample GPU types:" >> $GITHUB_STEP_SUMMARY
