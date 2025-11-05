@@ -65,18 +65,22 @@ jobs:
       - name: Check if catalog changed
         id: check_changes
         run: |
-          cd /tmp/skypilot
-          
-          if git diff --quiet catalogs/$catalog_version/runpod/vms.csv; then
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "No changes detected in RunPod catalog"
-          else
+          # Check if file exists and has changes (including untracked)
+          if git status --porcelain catalogs/$catalog_version/runpod/vms.csv | grep -q .; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "Changes detected in RunPod catalog"
-
-            # Show diff summary
-            echo "Diff summary:"
-            git diff --stat catalogs/$catalog_version/runpod/vms.csv
+        
+            # Show what changed
+            git status --short catalogs/$catalog_version/runpod/vms.csv
+        
+            # If tracked, show diff
+            if git ls-files --error-unmatch catalogs/$catalog_version/runpod/vms.csv >/dev/null 2>&1; then
+              echo "Diff summary:"
+              git diff --stat -- catalogs/$catalog_version/runpod/vms.csv
+            fi
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes detected in RunPod catalog"
           fi
 
       - name: Commit and push changes
